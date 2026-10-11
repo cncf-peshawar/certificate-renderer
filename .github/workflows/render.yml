@@ -1,0 +1,41 @@
+name: Render certificate batch
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Opaque batch job identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: certificate-renderer
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out protected renderer source
+        uses: actions/checkout@v6
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Render private batch
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          PLATFORM_URL: ${{ secrets.PLATFORM_URL }}
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          B2_BUCKET_ID: ${{ secrets.B2_BUCKET_ID }}
+          B2_BUCKET_NAME: ${{ secrets.B2_BUCKET_NAME }}
+          BATCH_CALLBACK_SECRET: ${{ secrets.BATCH_CALLBACK_SECRET }}
+        run: npm run render

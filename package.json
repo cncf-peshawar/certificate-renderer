@@ -1,0 +1,24 @@
+{
+  "name": "cncf-certificate-renderer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "render": "node src/render.mjs",
+    "test": "node --test",
+    "check": "node --check src/render.mjs && npm test",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "pdfkit": "^0.16.0",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.4"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  }
+}
