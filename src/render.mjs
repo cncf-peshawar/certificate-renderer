@@ -50,6 +50,27 @@ export function safeFilename(value) {
   );
 }
 
+export function formatCertificateDate(date = new Date()) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Karachi",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+export function resolveCertificateDate(value, generationDate, legacyDefaulted) {
+  return legacyDefaulted
+    ? generationDate
+    : String(value || "").trim() || generationDate;
+}
+
+export function findEnabledQrField(fields) {
+  return Array.isArray(fields)
+    ? fields.find((field) => field.field === "qr" && field.enabled !== false)
+    : undefined;
+}
+
 export function csvCell(value) {
   const text = String(value ?? "");
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
@@ -233,6 +254,30 @@ function drawField(document, field, attendee, template, pageWidth, pageHeight) {
     });
 }
 
+async function drawQrField(
+  document,
+  field,
+  attendee,
+  template,
+  pageWidth,
+  pageHeight,
+) {
+  const configuredSize = field.font_size;
+  const size = Math.max(24, (configuredSize / template.width) * pageWidth);
+  const centerX = (field.x / template.width) * pageWidth;
+  const centerY = (field.y / template.height) * pageHeight;
+  const qr = await QRCode.toBuffer(attendee.verifyUrl, {
+    errorCorrectionLevel: "H",
+    margin: 1,
+    width: 720,
+    color: { dark: "#111923", light: "#ffffff" },
+  });
+  const left = centerX - size / 2;
+  const top = centerY - size / 2;
+  document.rect(left - 1, top - 1, size + 2, size + 2).fill("#ffffff");
+  document.image(qr, left, top, { width: size, height: size });
+}
+
 export async function renderPdf(filePath, templateBytes, template, attendee) {
   const pageHeight = (template.height / template.width) * PAGE_WIDTH;
   const document = new PDFDocument({
@@ -252,18 +297,16 @@ export async function renderPdf(filePath, templateBytes, template, attendee) {
     drawField(document, field, attendee, template, PAGE_WIDTH, pageHeight);
   }
 
-  if (attendee.verifyUrl) {
-    const qrSize = (90 / 2048) * PAGE_WIDTH;
-    const qr = await QRCode.toBuffer(attendee.verifyUrl, {
-      errorCorrectionLevel: "H",
-      margin: 1,
-      width: 360,
-      color: { dark: "#111923", light: "#ffffff" },
-    });
-    const qrX = (PAGE_WIDTH - qrSize) / 2;
-    const qrY = pageHeight * 0.81;
-    document.rect(qrX - 1, qrY - 1, qrSize + 2, qrSize + 2).fill("#ffffff");
-    document.image(qr, qrX, qrY, { width: qrSize, height: qrSize });
+  const qrField = findEnabledQrField(template.fields);
+  if (attendee.verifyUrl && qrField) {
+    await drawQrField(
+      document,
+      qrField,
+      attendee,
+      template,
+      PAGE_WIDTH,
+      pageHeight,
+    );
   }
 
   document.end();
@@ -329,7 +372,7 @@ export async function makeArchive(workDirectory, attendees, manifest) {
 
 function validatePayload(payload, jobId) {
   if (
-    payload?.version !== 1 ||
+    ![1, 2].includes(payload?.version) ||
     payload.job_id !== jobId ||
     !Array.isArray(payload.attendees) ||
     payload.attendees.length < 1 ||
@@ -365,6 +408,12 @@ async function main() {
     const pdfDirectory = path.join(workDirectory, "individual", "pdf");
     await mkdir(pdfDirectory, { recursive: true });
     const manifest = [];
+    const generationDate = formatCertificateDate();
+    const legacyDatesWereDefaulted =
+      payload.version === 1 &&
+      payload.attendees.every(
+        (attendee) => !attendee.date || attendee.date === payload.event?.date,
+      );
 
     for (let index = 0; index < payload.attendees.length; index += 1) {
       const attendee = payload.attendees[index];
@@ -375,19 +424,27 @@ async function main() {
       ) {
         throw new Error("A private attendee record is invalid.");
       }
+      const resolvedAttendee = {
+        ...attendee,
+        date: resolveCertificateDate(
+          attendee.date,
+          generationDate,
+          legacyDatesWereDefaulted,
+        ),
+      };
       const filename = `${safeFilename(attendee.certId)}_${safeFilename(attendee.name)}.pdf`;
       await renderPdf(
         path.join(pdfDirectory, filename),
         templateBytes,
         payload.template,
-        attendee,
+        resolvedAttendee,
       );
       manifest.push({
         cert_id: attendee.certId,
         recipient_name: attendee.name,
         recipient_email: attendee.email || "",
         role: attendee.role || "Attendee",
-        date: attendee.date || payload.event.date || "",
+        date: resolvedAttendee.date,
         verify_url: attendee.verifyUrl,
         issuer: payload.issuer,
       });
@@ -412,6 +469,7 @@ async function main() {
           certId: row.cert_id,
           recipientName: row.recipient_name,
           role: row.role,
+          date: row.date,
         })),
       },
       payload.callback_url,
