@@ -11,7 +11,7 @@ The Action:
 1. validates the opaque job ID;
 2. downloads batch-inputs/<job-id>.json from private B2;
 3. validates the normalized PNG template;
-4. renders one PDF at a time to runner disk with PDFKit, QRCode, and Sharp;
+4. renders one PDF at a time to runner disk with PDFKit and Sharp, adding a QR only when the saved template explicitly enables its QR layer;
 5. creates individual/pdf/, manifest.csv, and manifest.json;
 6. streams the ZIP to batch-exports/<job-id>.zip;
 7. signs progress and completion callbacks with HMAC-SHA256;
